@@ -1,0 +1,7 @@
+mcp<3,>=2
+typesafe-sdk<1,>=0.1
+
+[dev]
+pytest<10,>=8.3
+pytest-asyncio<2,>=0.25
+ruff<1,>=0.11

@@ -1,0 +1,6 @@
+# Dev/CI dependencies for framework scripts and tests.
+# Runtime deps live in pyproject.toml (mcp, typesafe-sdk).
+PyYAML>=6.0
+pytest>=8.0
+pytest-asyncio>=0.25
+ruff>=0.11
