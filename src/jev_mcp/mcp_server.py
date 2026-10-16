@@ -23,8 +23,19 @@ INSTRUCTIONS = (
     "Include a no-match option when a Choice may have no suitable answer. Score criteria are "
     "ordered from low to high and scores range from 0 to N-1. A Noul near 0.5 is uncertainty. "
     "Confidence is not proof of correctness or authorization to act. Keep arithmetic, tests, "
-    "permissions, and execution in host code. Read jev://packs/verify or jev://packs/rerank for examples."
+    "permissions, and execution in host code. Read jev://packs/verify or jev://packs/rerank for examples. "
+    "Images (experimental, Jev 1.14+): pass local PNG/JPEG paths in `images` as {alias: path}, put "
+    '"{{image:alias}}" as a whole value in state, and refer to that state field in instructions. '
+    "Images are sent to TypeSafe and are allowed only from server-configured "
+    "directories. Box always "
+    "returns a box; ask a Noul presence question too and gate on it."
 )
+Images = Annotated[
+    dict[str, str] | None,
+    Field(description=(
+        'Optional {alias: local PNG/JPEG path}; reference as "{{image:alias}}" in state.'
+    )),
+]
 ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True,
 )
@@ -82,8 +93,9 @@ def create_server(
         criteria: dict[str, str | None],
         model: str | None = None,
         question_id: str = "answer",
+        images: Images = None,
     ) -> ToolEnvelope:
-        """Evaluate one Choice question against text/structured state."""
+        """Evaluate one Choice question against text/structured state and optional images."""
         return await result(
             state=state,
             questions={
@@ -94,6 +106,7 @@ def create_server(
                 }
             },
             model=model,
+            images=images,
         )
 
     @mcp.tool(annotations=ANNOTATIONS)
@@ -103,8 +116,9 @@ def create_server(
         criteria: Annotated[list[str], Field(description="Ordered rubric, low to high; 0 to N-1.")],
         model: str | None = None,
         question_id: str = "answer",
+        images: Images = None,
     ) -> ToolEnvelope:
-        """Evaluate one Score question against text/structured state."""
+        """Evaluate one Score question against text/structured state and optional images."""
         return await result(
             state=state,
             questions={
@@ -115,6 +129,7 @@ def create_server(
                 }
             },
             model=model,
+            images=images,
         )
 
     @mcp.tool(annotations=ANNOTATIONS)
@@ -124,8 +139,9 @@ def create_server(
         criteria: dict[str, str] | None = None,
         model: str | None = None,
         question_id: str = "answer",
+        images: Images = None,
     ) -> ToolEnvelope:
-        """Evaluate one Noul (yes/no probability) question against text/structured state."""
+        """Evaluate one Noul (yes/no probability) question against state and optional images."""
         spec: dict[str, Any] = {"type": "noul", "instructions": instructions}
         if criteria is not None:
             spec["criteria"] = criteria
@@ -133,6 +149,7 @@ def create_server(
             state=state,
             questions={question_id: spec},
             model=model,
+            images=images,
         )
 
     @mcp.tool(annotations=ANNOTATIONS)
@@ -140,9 +157,12 @@ def create_server(
         state: State,
         questions: dict[str, Any],
         model: str | None = None,
+        images: Images = None,
     ) -> ToolEnvelope:
-        """Evaluate multiple typed Choice/Score/Noul questions against one state."""
-        return await result(state=state, questions=questions, model=model)
+        """Evaluate several typed Choice/Score/Noul/Box questions against one state.
+
+        Box questions need images and return one box each."""
+        return await result(state=state, questions=questions, model=model, images=images)
 
     @mcp.resource("jev://packs/verify", mime_type="application/json")
     def verification_pack() -> str:

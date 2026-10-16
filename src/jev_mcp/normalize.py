@@ -50,6 +50,17 @@ def normalize_noul_answer(answer: Any) -> dict[str, Any]:
     }
 
 
+def normalize_box_answer(answer: Any) -> dict[str, Any]:
+    box = getattr(answer, "box", None)
+    return {
+        "type": "box",
+        # Box always returns coordinates, even when the target is absent: pair it
+        # with a Noul presence question and gate on that in host code.
+        "box": {edge: getattr(box, edge, None) for edge in ("top", "bottom", "left", "right")},
+        "confidence": getattr(answer, "confidence", None),
+    }
+
+
 def normalize_response(
     response: Any, *, question_ids: list[str] | None = None,
     questions: dict[str, Any] | None = None,
@@ -57,17 +68,18 @@ def normalize_response(
     """Serialize a System One response.
 
     When ``question_ids`` is set, only those answers are included (in order).
-    Otherwise all choice/score/noul answers are included.
+    Otherwise all choice/score/noul/box answers are included.
     """
     answers: dict[str, Any] = {}
     choices = getattr(response, "choices", None) or {}
     scores = getattr(response, "scores", None) or {}
     nouls = getattr(response, "nouls", None) or {}
+    boxes = getattr(response, "boxes", None) or {}
 
     if questions is not None:
         question_ids = list(questions)
-        if (set(choices) | set(scores) | set(nouls) != set(questions)
-                or len(choices) + len(scores) + len(nouls) != len(questions)):
+        if (set(choices) | set(scores) | set(nouls) | set(boxes) != set(questions)
+                or len(choices) + len(scores) + len(nouls) + len(boxes) != len(questions)):
             raise error("invalid_response", "Response answer IDs do not match the request.")
 
     if question_ids is not None:
@@ -78,6 +90,8 @@ def normalize_response(
                 answers[qid] = normalize_score_answer(scores[qid])
             elif qid in nouls:
                 answers[qid] = normalize_noul_answer(nouls[qid])
+            elif qid in boxes:
+                answers[qid] = normalize_box_answer(boxes[qid])
             else:
                 raise error(
                     "invalid_response",
@@ -91,6 +105,8 @@ def normalize_response(
             answers[qid] = normalize_score_answer(answer)
         for qid, answer in nouls.items():
             answers[qid] = normalize_noul_answer(answer)
+        for qid, answer in boxes.items():
+            answers[qid] = normalize_box_answer(answer)
 
     if questions is not None:
         for qid, spec in questions.items():
@@ -113,6 +129,13 @@ def _validate_answer(answer: dict[str, Any], question: dict[str, Any]) -> None:
         raise invalid
     if answer["type"] == "noul":
         if not _number(answer["noul"], 0, 1):
+            raise invalid
+        return
+    if answer["type"] == "box":
+        box = answer["box"]
+        if (not all(_number(v, 0, 1) for v in box.values())
+                or box["top"] > box["bottom"] or box["left"] > box["right"]
+                or (answer["confidence"] is not None and not _number(answer["confidence"], 0, 1))):
             raise invalid
         return
     confidence = answer["confidence"]

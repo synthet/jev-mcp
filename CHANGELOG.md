@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Experimental image inputs for Jev 1.14+ (`images` on every tool, `box` question type),
+  off unless `JEV_IMAGE_ROOTS` lists allowed directories. See `docs/images.md`.
+
+### Changed
+
+- Require `typesafe-sdk>=0.7.5` for Image assets and Box questions.
+
 ## [0.2.0] — 2026-09-22
 
 ### Added

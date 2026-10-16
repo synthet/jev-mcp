@@ -10,6 +10,7 @@ import anyio
 from pydantic import ValidationError
 
 from .errors import JevMcpError, error
+from .images import IMAGES_HEADER, image_roots, load_images, require_image_model, substitute_images
 from .limits import validate_request
 from .normalize import normalize_response
 from .transport import BoundedAsyncClient, BoundedClient
@@ -147,12 +148,16 @@ def build_questions(raw_questions: dict[str, Any]) -> dict[str, Any]:
                     f"Noul question '{qid}' criteria must be an object when provided.",
                     question_id=qid,
                 )
+        elif qtype == "box":
+            from typesafe_sdk import Box
+
+            built[qid] = Box(instructions=instructions)
         else:
             raise error(
                 "invalid_input",
                 f"Question '{qid}' has unsupported type '{qtype}'.",
                 question_id=qid,
-                next_steps=["Use type: choice, score, or noul."],
+                next_steps=["Use type: choice, score, noul, or box (box needs images)."],
             )
     return built
 
@@ -222,7 +227,8 @@ class JevClient:
         state: Any,
         questions: dict[str, Any],
         model: str | None = None,
-    ) -> tuple[Any, dict[str, Any], str]:
+        images: dict[str, str] | None = None,
+    ) -> tuple[Any, dict[str, Any], str, dict[str, str]]:
         validated_state = validate_state(state)
         try:
             built = build_questions(questions)
@@ -233,14 +239,24 @@ class JevClient:
                 next_steps=["Check criteria keys and value types for each question."],
             ) from exc
         request_model = (model or self.model).strip() or self.model
+        # Budget the JSON with placeholders; image bytes have their own limits.
         validate_request(validated_state, questions, request_model)
-        return validated_state, built, request_model
+        if not images:
+            if any(spec.get("type") == "box" for spec in questions.values()):
+                raise error("invalid_input", "Box questions need at least one image.",
+                            next_steps=["Pass images and reference them in state."])
+            return validated_state, built, request_model, {}
+        require_image_model(request_model)
+        loaded = load_images(images, image_roots())
+        state_with_images = substitute_images(validated_state, loaded)
+        return state_with_images, built, request_model, {IMAGES_HEADER: "true"}
 
     def system_one(
         self, *, state: Any, questions: dict[str, Any], model: str | None = None,
+        images: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        validated_state, built, request_model = self._prepare(
-            state=state, questions=questions, model=model,
+        validated_state, built, request_model, headers = self._prepare(
+            state=state, questions=questions, model=model, images=images,
         )
         try:
             with self._open_sdk() as client:
@@ -248,6 +264,7 @@ class JevClient:
                     state=validated_state,
                     questions=built,
                     model=request_model,
+                    **({"extra_headers": headers} if headers else {}),
                 )
         except Exception as exc:  # noqa: BLE001 — map SDK failures to structured errors
             raise _sdk_error(exc) from exc
@@ -255,9 +272,10 @@ class JevClient:
 
     async def asystem_one(
         self, *, state: Any, questions: dict[str, Any], model: str | None = None,
+        images: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        validated_state, built, request_model = self._prepare(
-            state=state, questions=questions, model=model,
+        validated_state, built, request_model, headers = self._prepare(
+            state=state, questions=questions, model=model, images=images,
         )
         from typesafe_sdk import AsyncTypeSafeClient
 
@@ -270,6 +288,7 @@ class JevClient:
             with anyio.fail_after(self.timeout_seconds):
                 response = await sdk.system_one(
                     state=validated_state, questions=built, model=request_model,
+                    **({"extra_headers": headers} if headers else {}),
                 )
             return normalize_response(response, questions=questions)
         except TimeoutError as exc:

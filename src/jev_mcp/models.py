@@ -28,6 +28,19 @@ class NoulAnswer(TypedDict):
     noul: Probability
 
 
+class BoxCoordinates(TypedDict):
+    top: Probability
+    bottom: Probability
+    left: Probability
+    right: Probability
+
+
+class BoxAnswer(TypedDict):
+    type: Literal["box"]
+    box: BoxCoordinates
+    confidence: Probability | None
+
+
 class Usage(TypedDict):
     input_tokens: int
     output_tokens: int
@@ -36,7 +49,8 @@ class Usage(TypedDict):
 class Judgment(TypedDict):
     model: str | None
     usage: Usage | None
-    answers: dict[str, Annotated[ChoiceAnswer | ScoreAnswer | NoulAnswer, Field(discriminator="type")]]
+    answers: dict[str, Annotated[ChoiceAnswer | ScoreAnswer | NoulAnswer | BoxAnswer,
+                                 Field(discriminator="type")]]
 
 
 class ErrorDetails(TypedDict):
