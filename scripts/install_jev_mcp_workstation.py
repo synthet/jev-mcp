@@ -13,6 +13,7 @@ import pathlib
 import re
 import shutil
 import sys
+import tomllib
 
 ROOT = pathlib.Path(os.environ.get("JEV_MCP_ROOT", r"D:\Projects\jev-mcp")).resolve()
 SERVER_KEY = "jev-rw-systemone"
@@ -22,7 +23,8 @@ CANONICAL_SKILL = ROOT / ".claude" / "skills" / SKILL_NAME / "SKILL.md"
 
 # First-party, recently active projects (exclude huge upstream mirrors like zed).
 TARGET_PROJECTS = [
-    "image-scoring-backend",
+    "image-scoring",
+    "image-scoring-pipeline",
     "image-scoring-gallery",
     "image-scoring-skills",
     "enshrouded-tools",
@@ -55,28 +57,32 @@ def mcp_entry() -> dict:
     entry: dict = {
         "command": resolve_uv(),
         "args": ["run", "--project", str(ROOT), "python", str(SCRIPT)],
+        # Always point at the project .env path (gitignored). Launcher also loads
+        # ROOT/.env directly; JEV_ENV_FILE is a fallback for clients that clear cwd.
+        "env": {"JEV_ENV_FILE": str(ROOT / ".env")},
     }
-    # Point at an existing local env file when present (path only — never the secret).
-    candidates = [
-        ROOT / ".env",
-        pathlib.Path(r"D:\Projects\synthet-llm-wiki") / ".env",
-    ]
-    for path in candidates:
-        if path.is_file():
-            entry["env"] = {"JEV_ENV_FILE": str(path)}
-            break
     return entry
 
 
-def upsert_json_mcp(path: pathlib.Path, *, create: bool = False) -> bool:
+def _atomic_write_text(path: pathlib.Path, payload: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def upsert_json_mcp(path: pathlib.Path, *, create: bool = False, dry_run: bool = False) -> bool:
     if not path.exists():
         if not create:
             print(f"SKIP missing {path}")
             return False
-        path.parent.mkdir(parents=True, exist_ok=True)
         data: dict = {"mcpServers": {}}
     else:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         if not isinstance(data, dict):
             print(f"SKIP non-object JSON {path}", file=sys.stderr)
             return False
@@ -85,18 +91,28 @@ def upsert_json_mcp(path: pathlib.Path, *, create: bool = False) -> bool:
         print(f"SKIP mcpServers is not an object in {path}", file=sys.stderr)
         return False
     servers[SERVER_KEY] = mcp_entry()
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    payload = json.dumps(data, indent=2) + "\n"
+    if dry_run:
+        print(f"DRY json mcp -> {path}")
+        return True
+    _atomic_write_text(path, payload)
     print(f"OK json mcp -> {path}")
     return True
 
 
-def upsert_codex_toml(path: pathlib.Path) -> None:
+def upsert_codex_toml(path: pathlib.Path, *, dry_run: bool = False) -> None:
     entry = mcp_entry()
     text = path.read_text(encoding="utf-8") if path.exists() else ""
+    expected = tomllib.loads(text)
+    expected.setdefault("mcp_servers", {})[SERVER_KEY] = entry
+    escaped_key = re.escape(SERVER_KEY)
+    server_key = rf'(?:{escaped_key}|"{escaped_key}"|\'{escaped_key}\')'
     for suffix in ("", ".env"):
+        env_suffix = r'\s*\.\s*(?:env|"env"|\'env\')' if suffix else ""
         pattern = re.compile(
-            rf"\n?\[mcp_servers\.{re.escape(SERVER_KEY)}{re.escape(suffix)}\]"
-            r"[\s\S]*?(?=\n\[|\Z)"
+            rf"^[ \t]*\[[ \t]*mcp_servers\s*\.\s*{server_key}{env_suffix}[ \t]*\]"
+            r"[^\n]*\n?[\s\S]*?(?=^[ \t]*\[|\Z)",
+            re.MULTILINE,
         )
         text = pattern.sub("", text)
     block = (
@@ -112,8 +128,13 @@ def upsert_codex_toml(path: pathlib.Path) -> None:
     if text and not text.endswith("\n"):
         text += "\n"
     text += "\n" + block
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    # Refuse unsupported table layouts rather than damaging unrelated settings.
+    if tomllib.loads(text) != expected:
+        raise ValueError("Cannot safely update Codex MCP tables; config was not changed.")
+    if dry_run:
+        print(f"DRY codex toml -> {path}")
+        return
+    _atomic_write_text(path, text)
     print(f"OK codex toml -> {path}")
 
 
@@ -166,22 +187,19 @@ def main() -> int:
     if not SCRIPT.is_file():
         print(f"ERROR: launcher missing: {SCRIPT}", file=sys.stderr)
         return 1
-    if not (os.environ.get("JEV_TOKEN") or os.environ.get("TYPESAFE_API_KEY")):
-        env_file = (ROOT / ".env").is_file() or pathlib.Path(
-            r"D:\Projects\synthet-llm-wiki"
-        ).joinpath(".env").is_file()
-        if env_file:
-            print(
-                "NOTE: no JEV_TOKEN in this shell; MCP entry will set JEV_ENV_FILE "
-                "to a local .env path (secret stays on disk, not in config values).",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "WARN: JEV_TOKEN / TYPESAFE_API_KEY unset and no .env found; "
-                "tools will return missing_credential until a key is available.",
-                file=sys.stderr,
-            )
+    project_env = ROOT / ".env"
+    if not project_env.is_file():
+        print(
+            f"WARN: {project_env} missing — put JEV_TOKEN there (copy from env.example). "
+            "MCP will not authenticate until the file exists.",
+            file=sys.stderr,
+        )
+    elif not (os.environ.get("JEV_TOKEN") or os.environ.get("TYPESAFE_API_KEY")):
+        print(
+            f"NOTE: MCP entry uses JEV_ENV_FILE={project_env} "
+            "(gitignored; secret not written into configs).",
+            file=sys.stderr,
+        )
 
     home = pathlib.Path.home()
     # Claude Code (user-scope), Cursor, Claude Desktop, Gemini CLI settings
@@ -198,7 +216,7 @@ def main() -> int:
     # Project-local Cursor MCP for this checkout
     proj_cursor = ROOT / ".cursor" / "mcp.json"
     if proj_cursor.exists():
-        data = json.loads(proj_cursor.read_text(encoding="utf-8"))
+        data = json.loads(proj_cursor.read_text(encoding="utf-8-sig"))
     else:
         example = ROOT / ".cursor" / "mcp.example.json"
         data = (

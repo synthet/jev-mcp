@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Any, Protocol
 
-from .errors import error
+import anyio
+from pydantic import ValidationError
+
+from .errors import JevMcpError, error
+from .limits import validate_request
 from .normalize import normalize_response
+from .transport import BoundedAsyncClient, BoundedClient
 
 API_KEY_ENVS = ("JEV_TOKEN", "TYPESAFE_API_KEY")
 DEFAULT_MODEL = "jev-1.13.0"
@@ -57,7 +63,7 @@ def default_timeout(environ: dict[str, str] | None = None) -> float:
             "JEV_TIMEOUT_SECONDS must be a positive number.",
             next_steps=["Set JEV_TIMEOUT_SECONDS to a positive float, e.g. 30."],
         ) from exc
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         raise error(
             "invalid_input",
             "JEV_TIMEOUT_SECONDS must be a positive number.",
@@ -175,6 +181,7 @@ class JevClient:
         model: str | None = None,
         timeout_seconds: float | None = None,
         sdk_factory: Any | None = None,
+        async_sdk_factory: Any | None = None,
     ) -> None:
         self.api_key = api_key if api_key is not None else resolve_api_key()
         self.model = model if model is not None else default_model()
@@ -182,6 +189,10 @@ class JevClient:
             timeout_seconds if timeout_seconds is not None else default_timeout()
         )
         self._sdk_factory = sdk_factory
+        self._async_sdk_factory = async_sdk_factory
+        if (isinstance(self.timeout_seconds, bool)
+                or not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0):
+            raise error("invalid_input", "Timeout must be finite and positive.")
 
     def _open_sdk(self) -> Any:
         if self._sdk_factory is not None:
@@ -202,18 +213,35 @@ class JevClient:
             api_key=self.api_key,
             model=self.model,
             timeout=self.timeout_seconds,
+            http_client=BoundedClient(timeout=self.timeout_seconds),
         )
 
-    def system_one(
+    def _prepare(
         self,
         *,
         state: Any,
         questions: dict[str, Any],
         model: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[Any, dict[str, Any], str]:
         validated_state = validate_state(state)
-        built = build_questions(questions)
+        try:
+            built = build_questions(questions)
+        except ValidationError as exc:
+            raise error(
+                "invalid_input",
+                "Question fields do not match the TypeSafe question schema.",
+                next_steps=["Check criteria keys and value types for each question."],
+            ) from exc
         request_model = (model or self.model).strip() or self.model
+        validate_request(validated_state, questions, request_model)
+        return validated_state, built, request_model
+
+    def system_one(
+        self, *, state: Any, questions: dict[str, Any], model: str | None = None,
+    ) -> dict[str, Any]:
+        validated_state, built, request_model = self._prepare(
+            state=state, questions=questions, model=model,
+        )
         try:
             with self._open_sdk() as client:
                 response = client.system_one(
@@ -222,17 +250,48 @@ class JevClient:
                     model=request_model,
                 )
         except Exception as exc:  # noqa: BLE001 — map SDK failures to structured errors
-            from .errors import JevMcpError
+            raise _sdk_error(exc) from exc
+        return normalize_response(response, questions=questions)
 
-            if isinstance(exc, JevMcpError):
-                raise
-            raise error(
-                "typesafe_error",
-                "TypeSafe System One request failed.",
-                retryable=True,
-                next_steps=[
-                    "Retry if the failure was transient.",
-                    "Verify JEV_TOKEN and network access to api.typesafe.ai.",
-                ],
-            ) from exc
-        return normalize_response(response, question_ids=list(built.keys()))
+    async def asystem_one(
+        self, *, state: Any, questions: dict[str, Any], model: str | None = None,
+    ) -> dict[str, Any]:
+        validated_state, built, request_model = self._prepare(
+            state=state, questions=questions, model=model,
+        )
+        from typesafe_sdk import AsyncTypeSafeClient
+
+        kwargs = dict(api_key=self.api_key, model=self.model, timeout=self.timeout_seconds)
+        sdk = (self._async_sdk_factory(**kwargs) if self._async_sdk_factory is not None
+               else AsyncTypeSafeClient(
+                   **kwargs, http_client=BoundedAsyncClient(timeout=self.timeout_seconds),
+               ))
+        try:
+            with anyio.fail_after(self.timeout_seconds):
+                response = await sdk.system_one(
+                    state=validated_state, questions=built, model=request_model,
+                )
+            return normalize_response(response, questions=questions)
+        except TimeoutError as exc:
+            raise error("request_timeout", "The total request deadline expired.",
+                        next_steps=["Reduce the request or check provider availability."]) from exc
+        except Exception as exc:
+            raise _sdk_error(exc) from exc
+        finally:
+            with anyio.CancelScope(shield=True):
+                await sdk.aclose()
+
+
+def _sdk_error(exc: Exception) -> JevMcpError:
+    from typesafe_sdk import TypeSafeAPIConnectionError, TypeSafeAPIError
+
+    if isinstance(exc, JevMcpError):
+        return exc
+    retryable = isinstance(exc, TypeSafeAPIConnectionError) or (
+        isinstance(exc, TypeSafeAPIError)
+        and (exc.status in {408, 429} or 500 <= exc.status < 600)
+    )
+    return error(
+        "typesafe_error", "TypeSafe System One request failed.", retryable=retryable,
+        next_steps=["Retry if transient; otherwise verify credentials and provider connectivity."],
+    )

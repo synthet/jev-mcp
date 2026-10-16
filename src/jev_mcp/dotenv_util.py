@@ -33,9 +33,14 @@ def load_dotenv(path: Path) -> int:
 
 
 def load_credential_env(*, project_root: Path) -> None:
-    """Load credentials for MCP/CLI from optional env-file pointers and project .env."""
+    """Load credentials for MCP/CLI from project ``.env`` then optional env-file pointers.
+
+    Existing process env always wins (``load_dotenv`` does not override). Project
+    ``.env`` is preferred over ``JEV_ENV_FILE`` / ``DOTENV_PATH`` so a local key
+    is what the TypeSafe client uses for the connection.
+    """
+    load_dotenv(project_root / ".env")
     for key in ("JEV_ENV_FILE", "DOTENV_PATH"):
         raw = os.environ.get(key)
         if raw:
             load_dotenv(Path(raw))
-    load_dotenv(project_root / ".env")

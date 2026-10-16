@@ -4,12 +4,32 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from importlib.metadata import version
+from typing import Annotated, Any
 
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from .client import JevClient
 from .errors import JevMcpError, error
+from .models import ToolEnvelope
+from .packs import PACKS
+
+INSTRUCTIONS = (
+    "Jev evaluates bounded semantic questions using a paid external TypeSafe service. "
+    "Use raw evidence as state and one narrow judgment per question. Question IDs are labels; "
+    "put the full meaning in instructions. Batch independent questions over shared state. "
+    "Include a no-match option when a Choice may have no suitable answer. Score criteria are "
+    "ordered from low to high and scores range from 0 to N-1. A Noul near 0.5 is uncertainty. "
+    "Confidence is not proof of correctness or authorization to act. Keep arithmetic, tests, "
+    "permissions, and execution in host code. Read jev://packs/verify or jev://packs/rerank for examples."
+)
+ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True,
+)
+State = Annotated[Any, Field(description="Raw text or structured evidence to judge; omit secrets.")]
+Instructions = Annotated[str, Field(description="One self-contained question, not a desired verdict.")]
 
 
 def create_server(
@@ -18,7 +38,7 @@ def create_server(
     client_factory: Callable[[], JevClient] | None = None,
     max_response_bytes: int = 512_000,
 ) -> MCPServer:
-    mcp = MCPServer("jev-mcp")
+    mcp = MCPServer("jev-mcp", version=version("jev-mcp"), instructions=INSTRUCTIONS)
 
     def get_client() -> JevClient:
         if client is not None:
@@ -27,9 +47,19 @@ def create_server(
             return client_factory()
         return JevClient()
 
-    def result(callable_: Callable[..., Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
+    async def result(**kwargs: Any) -> ToolEnvelope:
         try:
-            payload: dict[str, Any] = {"ok": True, "result": callable_(*args, **kwargs)}
+            try:
+                payload: ToolEnvelope = {"ok": True, "result": await get_client().asystem_one(**kwargs)}
+            except JevMcpError as exc:
+                payload = {"ok": False, "error": exc.as_dict()}
+            encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            if len(encoded) > max_response_bytes:
+                raise error(
+                    "response_too_large",
+                    "Response exceeded the configured MCP size limit.",
+                    next_steps=["Narrow state or ask fewer questions in one call."],
+                )
         except JevMcpError as exc:
             payload = {"ok": False, "error": exc.as_dict()}
         except Exception:
@@ -43,29 +73,18 @@ def create_server(
                     "next_steps": [],
                 },
             }
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        if len(encoded) > max_response_bytes:
-            return {
-                "ok": False,
-                "error": error(
-                    "response_too_large",
-                    "Response exceeded the configured MCP size limit.",
-                    next_steps=["Narrow state or ask fewer questions in one call."],
-                ).as_dict(),
-            }
         return payload
 
-    @mcp.tool()
-    def jev_choice(
-        state: Any,
-        instructions: str,
+    @mcp.tool(annotations=ANNOTATIONS)
+    async def jev_choice(
+        state: State,
+        instructions: Instructions,
         criteria: dict[str, str | None],
         model: str | None = None,
         question_id: str = "answer",
-    ) -> dict[str, Any]:
+    ) -> ToolEnvelope:
         """Evaluate one Choice question against text/structured state."""
-        return result(
-            get_client().system_one,
+        return await result(
             state=state,
             questions={
                 question_id: {
@@ -77,17 +96,16 @@ def create_server(
             model=model,
         )
 
-    @mcp.tool()
-    def jev_score(
-        state: Any,
-        instructions: str,
-        criteria: list[str],
+    @mcp.tool(annotations=ANNOTATIONS)
+    async def jev_score(
+        state: State,
+        instructions: Instructions,
+        criteria: Annotated[list[str], Field(description="Ordered rubric, low to high; 0 to N-1.")],
         model: str | None = None,
         question_id: str = "answer",
-    ) -> dict[str, Any]:
+    ) -> ToolEnvelope:
         """Evaluate one Score question against text/structured state."""
-        return result(
-            get_client().system_one,
+        return await result(
             state=state,
             questions={
                 question_id: {
@@ -99,33 +117,42 @@ def create_server(
             model=model,
         )
 
-    @mcp.tool()
-    def jev_noul(
-        state: Any,
-        instructions: str,
+    @mcp.tool(annotations=ANNOTATIONS)
+    async def jev_noul(
+        state: State,
+        instructions: Instructions,
         criteria: dict[str, str] | None = None,
         model: str | None = None,
         question_id: str = "answer",
-    ) -> dict[str, Any]:
+    ) -> ToolEnvelope:
         """Evaluate one Noul (yes/no probability) question against text/structured state."""
         spec: dict[str, Any] = {"type": "noul", "instructions": instructions}
         if criteria is not None:
             spec["criteria"] = criteria
-        return result(
-            get_client().system_one,
+        return await result(
             state=state,
             questions={question_id: spec},
             model=model,
         )
 
-    @mcp.tool()
-    def jev_system_one(
-        state: Any,
+    @mcp.tool(annotations=ANNOTATIONS)
+    async def jev_system_one(
+        state: State,
         questions: dict[str, Any],
         model: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> ToolEnvelope:
         """Evaluate multiple typed Choice/Score/Noul questions against one state."""
-        return result(get_client().system_one, state=state, questions=questions, model=model)
+        return await result(state=state, questions=questions, model=model)
+
+    @mcp.resource("jev://packs/verify", mime_type="application/json")
+    def verification_pack() -> str:
+        """Example evidence verification questions; no provider request."""
+        return json.dumps(PACKS["verify"])
+
+    @mcp.resource("jev://packs/rerank", mime_type="application/json")
+    def reranking_pack() -> str:
+        """Example independent relevance questions; sort scores in host code."""
+        return json.dumps(PACKS["rerank"])
 
     return mcp
 
@@ -135,5 +162,12 @@ def run_stdio(
     client: JevClient | None = None,
     client_factory: Callable[[], JevClient] | None = None,
 ) -> None:
+    from pathlib import Path
+
+    from .dotenv_util import load_credential_env
+
+    source_root = Path(__file__).resolve().parents[1]
+    project_root = source_root.parent if source_root.name == "src" else Path.cwd()
+    load_credential_env(project_root=project_root)
     server = create_server(client=client, client_factory=client_factory)
     server.run(transport="stdio")

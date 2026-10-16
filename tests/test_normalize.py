@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from jev_mcp.errors import JevMcpError
 from jev_mcp.normalize import (
     normalize_choice_answer,
     normalize_noul_answer,
@@ -64,3 +67,10 @@ def test_normalize_response_includes_model_and_usage():
     assert payload["usage"] == {"input_tokens": 12, "output_tokens": 3}
     assert payload["answers"]["category"]["choice"] == "a"
     assert payload["answers"]["urgent"]["noul"] == 0.9
+
+
+def test_missing_requested_answer_is_not_success():
+    response = SimpleNamespace(choices={}, scores={}, nouls={})
+    with pytest.raises(JevMcpError) as caught:
+        normalize_response(response, question_ids=["required"])
+    assert caught.value.code == "invalid_response"
