@@ -1,7 +1,17 @@
 mcp<3,>=2
-typesafe-sdk<1,>=0.1
+typesafe-sdk<1,>=0.7.5
 
 [dev]
+matplotlib<4,>=3.9
+PyYAML<7,>=6
+Pillow<13,>=11
 pytest<10,>=8.3
 pytest-asyncio<2,>=0.25
 ruff<1,>=0.11
+
+[evaluation]
+Pillow<13,>=11
+matplotlib<4,>=3.9
+
+[vision]
+Pillow<13,>=11

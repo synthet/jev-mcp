@@ -1,23 +1,21 @@
-"""Opt-in image assets for Jev 1.14+ System One requests.
-
-Images leave this machine for a paid external service, so they are disabled unless
-JEV_IMAGE_ROOTS lists allowed directories. Agents pass local paths (never pixels) and
-place the exact string "{{image:<alias>}}" as a whole value in state; questions refer
-to that state field by name.
-"""
-
+"""Validated opt-in images; local files are confined to configured roots."""
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import os
 import re
-import struct
+import warnings
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 from .errors import error
 
 IMAGES_HEADER = "TypeSafe-Danger-Zone-Images"
+LONG_CONTEXT_HEADER = "TypeSafe-Danger-Zone-Long-Context"
 ROOTS_ENV = "JEV_IMAGE_ROOTS"
 MIN_SIDE, MAX_SIDE = 280, 1568
 MAX_IMAGE_BYTES = 16 * 1024 * 1024
@@ -30,76 +28,100 @@ IMAGE_MODEL = re.compile(r"jev-(\d+)\.(\d+)\.\d+")
 
 @dataclass(frozen=True)
 class LoadedImage:
-    path: Path
+    path: Path | None
     data: bytes
     format: str
     width: int
     height: int
 
 
+def pillow():
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise error(
+            "missing_image_dependency", "Install jev-mcp[vision] for image support."
+        ) from exc
+    return Image
+
+
 def image_roots(environ: dict[str, str] | None = None) -> list[Path]:
     env = environ if environ is not None else os.environ
-    raw = env.get(ROOTS_ENV, "")
-    return [Path(p).resolve() for p in raw.split(os.pathsep) if p.strip()]
+    return [Path(p.strip()).resolve() for p in env.get(ROOTS_ENV, "").split(os.pathsep)
+            if p.strip()]
 
 
 def image_size(data: bytes) -> tuple[str, int, int] | None:
-    """(format, width, height) from PNG/JPEG headers, or None if neither."""
-    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
-        width, height = struct.unpack(">II", data[16:24])
-        return "png", width, height
-    if data[:2] != b"\xff\xd8":
+    """Fully decode a bounded still PNG/JPEG; header sniffing alone is insufficient."""
+    Image = pillow()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(data)) as img:
+                if img.format not in ("PNG", "JPEG") or getattr(img, "n_frames", 1) != 1:
+                    return None
+                width, height = img.size
+                if not (MIN_SIDE <= width <= MAX_SIDE and MIN_SIDE <= height <= MAX_SIDE):
+                    return None
+                fmt = img.format.lower()
+                img.verify()
+            with Image.open(BytesIO(data)) as img:
+                img.load()
+        return fmt, width, height
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning):
         return None
-    i = 2
-    while i + 4 <= len(data):
-        if data[i] != 0xFF:
-            return None
-        marker = data[i + 1]
-        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-            i += 2
-            continue
-        (length,) = struct.unpack(">H", data[i + 2:i + 4])
-        # SOF0-SOF15 except DHT (C4), JPG (C8) and DAC (CC) carry the frame size.
-        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-            height, width = struct.unpack(">HH", data[i + 5:i + 9])
-            return "jpeg", width, height
-        i += 2 + length
-    return None
 
 
-def _inside(path: Path, roots: list[Path]) -> bool:
-    return any(path == r or r in path.parents for r in roots)
-
-
-def load_images(images: dict[str, str], roots: list[Path]) -> dict[str, LoadedImage]:
-    if not roots:
-        raise error("images_disabled", "Image inputs are disabled on this server.",
-                    next_steps=[f"Set {ROOTS_ENV} to the directories images may be read from."])
+def load_images(images: dict[str, Any], roots: list[Path]) -> dict[str, LoadedImage]:
     if not isinstance(images, dict) or not images or len(images) > MAX_IMAGES:
-        raise error("invalid_input", f"images must map 1-{MAX_IMAGES} aliases to file paths.")
-    loaded: dict[str, LoadedImage] = {}
+        raise error("invalid_input", f"assets must map 1-{MAX_IMAGES} aliases to images.")
+    loaded = {}
     total = 0
-    for alias, raw_path in images.items():
-        valid_alias = isinstance(alias, str) and ALIAS.fullmatch(alias)
-        if not valid_alias or not isinstance(raw_path, str):
+    for alias, source in images.items():
+        if not isinstance(alias, str) or not ALIAS.fullmatch(alias):
             raise error("invalid_input", "Image aliases must match [A-Za-z0-9_-]{1,64}.")
-        path = Path(raw_path).resolve()  # resolves symlinks and '..' before the root check
-        if not _inside(path, roots):
-            raise error("invalid_input", f"Image '{alias}' is outside the allowed directories.")
-        if path.suffix.lower() not in (".png", ".jpg", ".jpeg") or not path.is_file():
-            raise error("invalid_input", f"Image '{alias}' must be an existing .png/.jpg file.")
-        if path.stat().st_size > MAX_IMAGE_BYTES:
-            raise error("invalid_input", f"Image '{alias}' exceeds 16 MiB.")
-        data = path.read_bytes()
+        path = None
+        declared_format = None
+        if isinstance(source, dict) and set(source) == {"type", "data_base64", "format"}:
+            text, declared_format = source["data_base64"], source["format"]
+            if (source["type"] != "image" or declared_format not in ("png", "jpg", "jpeg")
+                    or not isinstance(text, str)):
+                raise error("invalid_input", "Expected a base64 PNG/JPEG image asset.")
+            if len(text) > 4 * ((MAX_IMAGE_BYTES + 2) // 3):
+                raise error("request_too_large", "Encoded image exceeds 16 MiB decoded.")
+            try:
+                data = base64.b64decode(text, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise error("invalid_input", "Invalid image base64.") from exc
+        else:
+            raw_path = (source.get("path") if isinstance(source, dict)
+                        and set(source) == {"path"} else source)
+            if not roots:
+                raise error("images_disabled", f"Local paths require {ROOTS_ENV}.")
+            if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+                raise error("invalid_input", "Image paths must be absolute.")
+            try:
+                path = Path(raw_path).resolve(strict=True)
+                if not any(path.is_relative_to(root.resolve()) for root in roots):
+                    raise error("invalid_input", "Image is outside the allowed directories.")
+                if not path.is_file():
+                    raise error("invalid_input", "Image must be a regular file.")
+                with path.open("rb") as file:
+                    data = file.read(MAX_IMAGE_BYTES + 1)
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise error("invalid_input", "Image file could not be read.") from exc
+        if len(data) > MAX_IMAGE_BYTES:
+            raise error("request_too_large", "Image exceeds 16 MiB.")
         info = image_size(data)
         if info is None:
-            raise error("invalid_input", f"Image '{alias}' is not a valid PNG or JPEG.")
+            raise error(
+                "invalid_input",
+                "Expected a complete still PNG/JPEG, each side 280-1568 px.",
+            )
         fmt, width, height = info
-        if not (MIN_SIDE <= width <= MAX_SIDE and MIN_SIDE <= height <= MAX_SIDE):
-            raise error("invalid_input",
-                        f"Image '{alias}' is {width}x{height}; "
-                        f"each side must be {MIN_SIDE}-{MAX_SIDE} px.",
-                        next_steps=["Resize or pad the image before sending; Jev does not resize."])
+        if declared_format and declared_format.replace("jpg", "jpeg") != fmt:
+            raise error("invalid_input", "Image format does not match decoded contents.")
         total += len(data)
         if total > MAX_TOTAL_BYTES:
             raise error("request_too_large", "Images exceed the 32 MiB request budget.")
@@ -107,40 +129,56 @@ def load_images(images: dict[str, str], roots: list[Path]) -> dict[str, LoadedIm
     return loaded
 
 
-def substitute_images(state: Any, loaded: dict[str, LoadedImage]) -> Any:
-    """Replace whole-value placeholders with SDK Image assets; every alias must be used."""
+def substitute_images(content: Any, loaded: dict[str, LoadedImage]) -> tuple[Any, dict[str, Any]]:
+    """Replace references at any nesting depth, including inside text.
+
+    Whole values become Image objects; embedded references use the SDK string
+    protocol. Explicit assets ensure both reach multipart.
+    """
     from typesafe_sdk import Image
 
     assets = {alias: Image(img.data) for alias, img in loaded.items()}
     used: set[str] = set()
+    size = len(json.dumps(content, ensure_ascii=False).encode("utf-8")) + 65536
+    if size + sum(len(img.data) + 4096 for img in loaded.values()) > MAX_TOTAL_BYTES:
+        raise error("request_too_large", "Multipart request exceeds 32 MiB.")
 
-    def walk(value: Any) -> Any:
+    def reference(match):
+        nonlocal size
+        alias = match.group(1)
+        if alias not in assets:
+            raise error("invalid_input", "Content references an unknown image.")
+        used.add(alias)
+        img = loaded[alias]
+        # Conservative local estimate; provider re-encoding can differ.
+        size += max(len(img.data), img.width * img.height * 3 + 4096)
+        if size > MAX_TOTAL_BYTES:
+            raise error("request_too_large", "Expanded image request exceeds 32 MiB.")
+        return str(assets[alias])
+
+    def walk(value):
         if isinstance(value, str):
+            text = PLACEHOLDER.sub(reference, value)
+            if "{{image:" in text:
+                raise error("invalid_input", "Malformed image reference.")
             match = PLACEHOLDER.fullmatch(value)
-            if not match:
-                return value
-            alias = match.group(1)
-            if alias not in assets:
-                raise error("invalid_input", f"State references unknown image '{alias}'.")
-            used.add(alias)
-            return assets[alias]
+            return assets[match.group(1)] if match else text
         if isinstance(value, dict):
             return {k: walk(v) for k, v in value.items()}
         if isinstance(value, list):
             return [walk(v) for v in value]
         return value
 
-    result = walk(state)
-    unused = sorted(set(assets) - used)
-    if unused:
-        raise error("invalid_input", f"Images {unused} are not referenced in state.",
-                    next_steps=['Put "{{image:<alias>}}" as a whole value in state.'])
-    return result
+    result = walk(content)
+    if set(assets) != used:
+        raise error("invalid_input", "Every asset must be referenced in request content.")
+    return result, {str(asset): asset for asset in assets.values()}
 
 
-def require_image_model(model: str) -> None:
+def require_image_model(model: str, *, box: bool = False) -> None:
     match = IMAGE_MODEL.fullmatch(model)
-    if model == "jev-preview" or (match and (int(match.group(1)), int(match.group(2))) >= (1, 14)):
+    minimum = (1, 14) if box else (1, 13)
+    if model == "jev-preview" or (match and (int(match[1]), int(match[2])) >= minimum):
         return
-    raise error("invalid_input", f"Model '{model}' does not accept images.",
-                next_steps=["Pin an image-capable model such as jev-1.14.0."])
+    raise error("invalid_input", "Box requires Jev 1.14+; images require Jev 1.13+.",
+                next_steps=["Pin jev-1.14.0 for experimental vision requests."])

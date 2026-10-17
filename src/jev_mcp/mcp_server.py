@@ -23,12 +23,14 @@ INSTRUCTIONS = (
     "Include a no-match option when a Choice may have no suitable answer. Score criteria are "
     "ordered from low to high and scores range from 0 to N-1. A Noul near 0.5 is uncertainty. "
     "Confidence is not proof of correctness or authorization to act. Keep arithmetic, tests, "
-    "permissions, and execution in host code. Read jev://packs/verify or jev://packs/rerank for examples. "
-    "Images (experimental, Jev 1.14+): pass local PNG/JPEG paths in `images` as {alias: path}, put "
-    '"{{image:alias}}" as a whole value in state, and refer to that state field in instructions. '
-    "Images are sent to TypeSafe and are allowed only from server-configured "
-    "directories. Box always "
-    "returns a box; ask a Noul presence question too and gate on it."
+    "permissions, and execution in host code. Read jev://packs/verify or "
+    "jev://packs/rerank for examples. "
+    "Images and Box are experimental: set allow_images=true and pass assets as "
+    "{alias: absolute path} or {alias: {type: image, data_base64: ..., format: png|jpeg}}. "
+    "Local paths require JEV_IMAGE_ROOTS. Reference {{image:alias}} anywhere in nested "
+    "state, instructions, or criteria, including inside text. Images require Jev 1.13+; "
+    "Box requires 1.14+. Box always returns a box; gate optional targets with a Noul "
+    "presence question in host code. long_context=true enables bounded larger text requests."
 )
 Images = Annotated[
     dict[str, str] | None,
@@ -39,8 +41,12 @@ Images = Annotated[
 ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True,
 )
-State = Annotated[Any, Field(description="Raw text or structured evidence to judge; omit secrets.")]
-Instructions = Annotated[str, Field(description="One self-contained question, not a desired verdict.")]
+State = Annotated[
+    Any, Field(description="Raw text or structured evidence to judge; omit secrets.")
+]
+Instructions = Annotated[
+    Any, Field(description="One self-contained question, not a desired verdict.")
+]
 
 
 def create_server(
@@ -61,7 +67,10 @@ def create_server(
     async def result(**kwargs: Any) -> ToolEnvelope:
         try:
             try:
-                payload: ToolEnvelope = {"ok": True, "result": await get_client().asystem_one(**kwargs)}
+                payload: ToolEnvelope = {
+                    "ok": True,
+                    "result": await get_client().asystem_one(**kwargs),
+                }
             except JevMcpError as exc:
                 payload = {"ok": False, "error": exc.as_dict()}
             encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -90,10 +99,13 @@ def create_server(
     async def jev_choice(
         state: State,
         instructions: Instructions,
-        criteria: dict[str, str | None],
+        criteria: dict[str, Any],
         model: str | None = None,
         question_id: str = "answer",
         images: Images = None,
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
     ) -> ToolEnvelope:
         """Evaluate one Choice question against text/structured state and optional images."""
         return await result(
@@ -106,17 +118,20 @@ def create_server(
                 }
             },
             model=model,
-            images=images,
+            images=images, assets=assets, allow_images=allow_images, long_context=long_context,
         )
 
     @mcp.tool(annotations=ANNOTATIONS)
     async def jev_score(
         state: State,
         instructions: Instructions,
-        criteria: Annotated[list[str], Field(description="Ordered rubric, low to high; 0 to N-1.")],
+        criteria: Annotated[list[Any], Field(description="Ordered rubric, low to high; 0 to N-1.")],
         model: str | None = None,
         question_id: str = "answer",
         images: Images = None,
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
     ) -> ToolEnvelope:
         """Evaluate one Score question against text/structured state and optional images."""
         return await result(
@@ -129,17 +144,20 @@ def create_server(
                 }
             },
             model=model,
-            images=images,
+            images=images, assets=assets, allow_images=allow_images, long_context=long_context,
         )
 
     @mcp.tool(annotations=ANNOTATIONS)
     async def jev_noul(
         state: State,
         instructions: Instructions,
-        criteria: dict[str, str] | None = None,
+        criteria: dict[str, Any] | None = None,
         model: str | None = None,
         question_id: str = "answer",
         images: Images = None,
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
     ) -> ToolEnvelope:
         """Evaluate one Noul (yes/no probability) question against state and optional images."""
         spec: dict[str, Any] = {"type": "noul", "instructions": instructions}
@@ -149,7 +167,7 @@ def create_server(
             state=state,
             questions={question_id: spec},
             model=model,
-            images=images,
+            images=images, assets=assets, allow_images=allow_images, long_context=long_context,
         )
 
     @mcp.tool(annotations=ANNOTATIONS)
@@ -158,11 +176,33 @@ def create_server(
         questions: dict[str, Any],
         model: str | None = None,
         images: Images = None,
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
     ) -> ToolEnvelope:
         """Evaluate several typed Choice/Score/Noul/Box questions against one state.
 
         Box questions need images and return one box each."""
-        return await result(state=state, questions=questions, model=model, images=images)
+        return await result(state=state, questions=questions, model=model, images=images,
+                            assets=assets, allow_images=allow_images, long_context=long_context)
+
+    @mcp.tool(annotations=ANNOTATIONS)
+    async def jev_box(
+        state: State,
+        instructions: Instructions,
+        model: str | None = None,
+        question_id: str = "answer",
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
+        images: Images = None,
+    ) -> ToolEnvelope:
+        """Locate a target as normalized edges; pair optional targets with Noul in host code."""
+        return await result(
+            state=state, questions={question_id: {"type": "box", "instructions": instructions}},
+            model=model, assets=assets, images=images,
+            allow_images=allow_images, long_context=long_context,
+        )
 
     @mcp.resource("jev://packs/verify", mime_type="application/json")
     def verification_pack() -> str:

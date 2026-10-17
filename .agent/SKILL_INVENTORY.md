@@ -1,6 +1,6 @@
 # Skill inventory — Jev MCP
 
-**Last reviewed:** 2026-08-14. Companion to [SKILL_CHANGE_AST10_REVIEW.md](SKILL_CHANGE_AST10_REVIEW.md)
+**Last reviewed:** 2026-10-16. Companion to [SKILL_CHANGE_AST10_REVIEW.md](SKILL_CHANGE_AST10_REVIEW.md)
 and [SKILL_COMPILATION.md](SKILL_COMPILATION.md).
 Update this file (new row or **Last reviewed** date) in the same PR as any skill change.
 
@@ -50,6 +50,7 @@ commands or edit code/config as part of its procedure.
 | lint-format-security | ruff, eslint, clippy, trivy, shellcheck (**compiled harness**) | L2 | 2026-08-14 |
 | mcp-code-intelligence | MCP tiers; fff, Graphify, Serena, Zoekt, embeddings | L2 | 2026-07-21 |
 | graphify-knowledge-graph | Query/refresh Graphify MCP or CLI for architecture paths and communities | L2 | 2026-07-21 |
+| jev-mcp | TypeSafe Choice/Score/Noul/Box judgments, opt-in images and offline evaluation; routing, reranking and evidence gates | L2 | 2026-10-16 |
 | windows-agent-tooling | Native Windows agent workflows | L2 | 2026-07-03 |
 | wsl2-agent-tooling | WSL2 build/test/MCP workflows | L2 | 2026-07-03 |
 
@@ -106,3 +107,12 @@ update the checker, this file, and [SKILL_CHANGE_AST10_REVIEW.md](SKILL_CHANGE_A
 in the same PR.
 
 CLI skill structure is additionally checked by `scripts/validate_cli_skills.py`.
+Jev MCP skill reviewed for 0.3.0: image/Box/long-context opt-ins, bounded local paths,
+external-export approval, offline evaluation commands, and model-default migration.
+
+Framework workflow skills reviewed for 0.3.0: all 25 `framework-*` wrappers preserve
+their command counterparts' six safety metadata fields and explicit-invocation restriction.
+Relative links resolve from the skill directory; hypothetical destinations are literal examples.
+AST10 review: no new tools, permissions or export paths; external-review wrappers retain
+`external_export` / approval-required / high-risk metadata. Qualitative review covers this
+metadata/link-only repair; the existing frontmatter and sync gates verify the contracts.

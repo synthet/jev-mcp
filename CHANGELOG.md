@@ -6,14 +6,32 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-16
+
 ### Added
 
-- Experimental image inputs for Jev 1.14+ (`images` on every tool, `box` question type),
-  off unless `JEV_IMAGE_ROOTS` lists allowed directories. See `docs/images.md`.
+- Experimental image assets across all judgment tools: base64 PNG/JPEG or absolute local paths,
+  explicit `allow_images`, nested and embedded references, full decoding and bounded multipart uploads.
+- `jev_box` and batch `type: box` with validated normalized coordinates and nullable confidence.
+  Raw Box answers remain available; optional targets use application-level Noul presence gates.
+- Per-request `long_context` opt-in with a larger bounded text budget and documented TypeSafe header.
+- Optional vision/evaluation dependencies and `vision prepare|run|evaluate`: EXIF/RGB preparation,
+  hashes and coordinate transforms, resolution/compression variants, tiles, offline overlays/plots,
+  frozen group manifests, annotation isolation, bounded live runs, fingerprints and safe resume.
+- Calibration, classification, Score, presence-gated localization, coverage-risk, latency,
+  token and recorded-price cost metrics, plus six runnable synthetic task examples.
 
 ### Changed
 
-- Require `typesafe-sdk>=0.7.5` for Image assets and Box questions.
+- **Model-default migration:** the default is now `jev-1.14.0`. Set `JEV_MODEL=jev-1.13.0`
+  or pass `model` per request to retain the prior model. Experimental features remain opt-in.
+- Require `typesafe-sdk>=0.7.5,<1`; local image files additionally require `JEV_IMAGE_ROOTS`.
+- Update API contracts and the canonical Jev decision skill; regenerate Cursor and Codex mirrors.
+
+### Fixed
+
+- Restore canonical safety metadata and valid relative links in 25 framework workflow skills,
+  resolving the frontmatter release gate without weakening validation.
 
 ## [0.2.0] — 2026-09-22
 

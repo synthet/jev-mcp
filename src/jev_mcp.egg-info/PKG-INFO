@@ -1,12 +1,20 @@
 Metadata-Version: 2.4
 Name: jev-mcp
-Version: 0.2.0
+Version: 0.3.0
 Summary: MCP server exposing TypeSafe Jev judgments to AI agents
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 Requires-Dist: mcp<3,>=2
-Requires-Dist: typesafe-sdk<1,>=0.1
+Requires-Dist: typesafe-sdk<1,>=0.7.5
+Provides-Extra: vision
+Requires-Dist: Pillow<13,>=11; extra == "vision"
+Provides-Extra: evaluation
+Requires-Dist: Pillow<13,>=11; extra == "evaluation"
+Requires-Dist: matplotlib<4,>=3.9; extra == "evaluation"
 Provides-Extra: dev
+Requires-Dist: matplotlib<4,>=3.9; extra == "dev"
+Requires-Dist: PyYAML<7,>=6; extra == "dev"
+Requires-Dist: Pillow<13,>=11; extra == "dev"
 Requires-Dist: pytest<10,>=8.3; extra == "dev"
 Requires-Dist: pytest-asyncio<2,>=0.25; extra == "dev"
 Requires-Dist: ruff<1,>=0.11; extra == "dev"
@@ -36,16 +44,42 @@ uv run --project . python scripts/run_jev_mcp.py
 | `jev_choice` | One Choice question |
 | `jev_score` | One Score question |
 | `jev_noul` | One Noul (yes/no probability) question |
+| `jev_box` | Experimental image localization; gate optional targets with Noul |
 | `jev_system_one` | Multiple typed questions against one state |
 
-Secrets via env only (`JEV_TOKEN` preferred, `TYPESAFE_API_KEY` fallback). Default model pin: `jev-1.13.0` (`JEV_MODEL`).
+Secrets via env only (`JEV_TOKEN` preferred, `TYPESAFE_API_KEY` fallback). Default model pin: **`jev-1.14.0`** (`JEV_MODEL`). To retain the previous model, set
+`JEV_MODEL=jev-1.13.0` or pass `model` on a request.
 
-### Tests
+Experimental images and long context require per-request opt-ins. See [API contracts](docs/api.md),
+[image inputs](docs/images.md), and the [offline evaluation workflow](docs/evaluation.md).
+Install optional support with `uv sync --extra dev --extra evaluation`.
+`jev-mcp vision prepare|run|evaluate` provides preparation, offline validation and metrics;
+paid runs require explicit live/export options and a sample limit.
+
+### Workstation MCP (user-level)
+
+Wire `jev-rw-systemone` into Claude Code, Claude Desktop, Cursor, Codex, Gemini, and Antigravity,
+and install the portable `jev-mcp` skill into active sibling projects:
 
 ```bash
-python -m pytest
-ruff check src tests
+python scripts/install_jev_mcp_workstation.py
 ```
+
+Requires `uv` on PATH. The installer points `JEV_ENV_FILE` at this checkout's `.env`
+and never writes the API key into config files. Existing process variables take precedence,
+followed by the checkout's `.env`, then optional `JEV_ENV_FILE` / `DOTENV_PATH` files.
+Reload MCP in each client after running. Canonical skill: `.claude/skills/jev-mcp/` (mirrored to
+`.cursor/` and `.agents/` via `python scripts/sync_assistant_trees.py`).
+
+Verify install without spending API quota:
+
+```bash
+jev-mcp doctor
+python -m pytest tests/test_workstation_installer.py tests/test_mcp_tools.py -q
+```
+
+Hosts wired: **Cursor**, **Claude Code**, **Claude Desktop**, **Codex**, **Gemini CLI**, **Antigravity**
+(see [`AGENTS.md`](AGENTS.md) for exact config paths).
 
 Agent scaffolding lives in `.claude/`, `.cursor/`, `.agents/`, `.codex/`, `.agent/`, and
 `.agent-memory/`. Start with [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).

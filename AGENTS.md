@@ -60,7 +60,7 @@ jev-mcp mcp               # stdio MCP server (requires JEV_TOKEN)
 <!-- BEGIN MCP TOOL INVENTORY -->
 | Server (example key) | Tools (when connected) | Notes |
 |----------------------|------------------------|-------|
-| `jev-rw-systemone` | `jev_choice`, `jev_score`, `jev_noul`, `jev_system_one` | TypeSafe System One; set `JEV_TOKEN`; see `.mcp.json` |
+| `jev-rw-systemone` | `jev_choice`, `jev_score`, `jev_noul`, `jev_system_one`, `jev_box` | TypeSafe System One; set `JEV_TOKEN`; see `.mcp.json` |
 | `fff-mcp` / `jev-fff` | `ffgrep`, `fffind`, `fff-multi-grep` | Opt-in; see `.cursor/mcp.example.json` |
 | `graphify-mcp` / `jev-graphify` | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, … | Opt-in; needs `graphify-out/graph.json`; see `_examples.proj-ro-graphify` |
 <!-- END MCP TOOL INVENTORY -->
@@ -118,6 +118,7 @@ that was not obvious from the error message. Keep entries short: date, symptom, 
 | Date | Symptom | Root cause | Fix / guard |
 |------|---------|------------|-------------|
 | _(none yet)_ | | | |
+| 2026-10-16 | Workflow skills failed frontmatter validation with 186 findings | Command-derived wrappers omitted six metadata fields and retained command-relative/example links | Restore canonical command metadata, rebase real links, render hypothetical targets literally; validate before mirroring |
 
 ## AI workspace assets
 

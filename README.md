@@ -23,9 +23,17 @@ uv run --project . python scripts/run_jev_mcp.py
 | `jev_choice` | One Choice question |
 | `jev_score` | One Score question |
 | `jev_noul` | One Noul (yes/no probability) question |
+| `jev_box` | Experimental image localization; gate optional targets with Noul |
 | `jev_system_one` | Multiple typed questions against one state |
 
-Secrets via env only (`JEV_TOKEN` preferred, `TYPESAFE_API_KEY` fallback). Default model pin: `jev-1.13.0` (`JEV_MODEL`).
+Secrets via env only (`JEV_TOKEN` preferred, `TYPESAFE_API_KEY` fallback). Default model pin: **`jev-1.14.0`** (`JEV_MODEL`). To retain the previous model, set
+`JEV_MODEL=jev-1.13.0` or pass `model` on a request.
+
+Experimental images and long context require per-request opt-ins. See [API contracts](docs/api.md),
+[image inputs](docs/images.md), and the [offline evaluation workflow](docs/evaluation.md).
+Install optional support with `uv sync --extra dev --extra evaluation`.
+`jev-mcp vision prepare|run|evaluate` provides preparation, offline validation and metrics;
+paid runs require explicit live/export options and a sample limit.
 
 ### Workstation MCP (user-level)
 

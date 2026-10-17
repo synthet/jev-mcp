@@ -8,7 +8,7 @@ from jev_mcp.mcp_server import create_server
 async def test_tools_publish_typed_output_and_annotation():
     async with Client(create_server()) as client:
         listed = await client.list_tools()
-    assert len(listed.tools) == 4
+    assert len(listed.tools) == 5
     for tool in listed.tools:
         schema = tool.output_schema
         assert "ok" in schema["properties"]

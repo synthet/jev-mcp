@@ -1,0 +1,76 @@
+{
+  "product-identity": {
+    "same": {
+      "type": "noul",
+      "instructions": {
+        "question": "Does the object in state.photo match the reference?",
+        "reference": "{{image:reference}}"
+      }
+    }
+  },
+  "classification": {
+    "class": {
+      "type": "choice",
+      "instructions": "What color is the central object?",
+      "criteria": {
+        "red": "Red object",
+        "blue": "Blue object",
+        "none": "No object"
+      }
+    }
+  },
+  "inspection": {
+    "fault": {
+      "type": "noul",
+      "instructions": "Is a blue object present?"
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "Rate blue contamination.",
+      "criteria": [
+        "No blue",
+        "Some blue",
+        "Mostly blue"
+      ]
+    }
+  },
+  "localization": {
+    "present": {
+      "type": "noul",
+      "instructions": "Is a colored rectangle visible?"
+    },
+    "where": {
+      "type": "box",
+      "instructions": "The colored rectangle in state.photo"
+    }
+  },
+  "decomposed-reasoning": {
+    "colored": {
+      "type": "noul",
+      "instructions": "Is a colored object present?"
+    },
+    "red": {
+      "type": "noul",
+      "instructions": "Is a red object present?"
+    }
+  },
+  "hybrid-routing": {
+    "route": {
+      "type": "choice",
+      "instructions": "Does the precomputed local_prediction match the photo? Keep it only if supported; otherwise escalate.",
+      "criteria": {
+        "local": "Supported by image",
+        "escalate": "Not supported"
+      }
+    },
+    "class": {
+      "type": "choice",
+      "instructions": "What color is the central object?",
+      "criteria": {
+        "red": null,
+        "blue": null,
+        "none": "No object"
+      }
+    }
+  }
+}

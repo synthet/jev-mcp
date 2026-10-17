@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jev-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server exposing TypeSafe Jev judgments to AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,7 +14,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+vision = ["Pillow>=11,<13"]
+evaluation = ["Pillow>=11,<13", "matplotlib>=3.9,<4"]
 dev = [
+  "matplotlib>=3.9,<4",
+  "PyYAML>=6,<7",
+  "Pillow>=11,<13",
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.25,<2",
   "ruff>=0.11,<1",

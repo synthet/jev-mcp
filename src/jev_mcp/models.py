@@ -1,9 +1,9 @@
 """Published MCP output types; preserve the existing JSON envelopes."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Required
 
 from pydantic import Field
-from typing_extensions import Required, TypedDict
+from typing_extensions import TypedDict
 
 Probability = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 

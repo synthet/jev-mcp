@@ -10,13 +10,20 @@ import anyio
 from pydantic import ValidationError
 
 from .errors import JevMcpError, error
-from .images import IMAGES_HEADER, image_roots, load_images, require_image_model, substitute_images
+from .images import (
+    IMAGES_HEADER,
+    LONG_CONTEXT_HEADER,
+    image_roots,
+    load_images,
+    require_image_model,
+    substitute_images,
+)
 from .limits import validate_request
 from .normalize import normalize_response
 from .transport import BoundedAsyncClient, BoundedClient
 
 API_KEY_ENVS = ("JEV_TOKEN", "TYPESAFE_API_KEY")
-DEFAULT_MODEL = "jev-1.13.0"
+DEFAULT_MODEL = "jev-1.14.0"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
@@ -106,7 +113,8 @@ def build_questions(raw_questions: dict[str, Any]) -> dict[str, Any]:
             )
         qtype = spec.get("type")
         instructions = spec.get("instructions")
-        if not isinstance(instructions, str) or not instructions.strip():
+        if (instructions is None or instructions == {} or instructions == []
+                or isinstance(instructions, str) and not instructions.strip()):
             raise error(
                 "invalid_input",
                 f"Question '{qid}' requires non-empty instructions.",
@@ -129,12 +137,6 @@ def build_questions(raw_questions: dict[str, Any]) -> dict[str, Any]:
                     f"Score question '{qid}' requires a non-empty criteria list.",
                     question_id=qid,
                 )
-            if not all(isinstance(item, str) for item in criteria):
-                raise error(
-                    "invalid_input",
-                    f"Score question '{qid}' criteria must be a list of strings.",
-                    question_id=qid,
-                )
             built[qid] = Score(instructions=instructions, criteria=criteria)
         elif qtype == "noul":
             criteria = spec.get("criteria")
@@ -151,6 +153,8 @@ def build_questions(raw_questions: dict[str, Any]) -> dict[str, Any]:
         elif qtype == "box":
             from typesafe_sdk import Box
 
+            if "criteria" in spec:
+                raise error("invalid_input", "Box questions do not accept criteria.")
             built[qid] = Box(instructions=instructions)
         else:
             raise error(
@@ -165,13 +169,13 @@ def build_questions(raw_questions: dict[str, Any]) -> dict[str, Any]:
 def validate_state(state: Any) -> Any:
     if isinstance(state, (str, dict)):
         return state
-    if isinstance(state, list) and all(isinstance(item, str) for item in state):
+    if isinstance(state, list):
         return state
     raise error(
         "invalid_input",
-        "state must be a string, object, or array of strings (text/structured only).",
+        "state must be a string, object, or array of JSON evidence.",
         next_steps=[
-            "Do not pass images, audio, or video; preprocess non-text into text fields.",
+            "Use assets and explicit allow_images for image references.",
         ],
     )
 
@@ -221,42 +225,20 @@ class JevClient:
             http_client=BoundedClient(timeout=self.timeout_seconds),
         )
 
-    def _prepare(
-        self,
-        *,
-        state: Any,
-        questions: dict[str, Any],
-        model: str | None = None,
-        images: dict[str, str] | None = None,
-    ) -> tuple[Any, dict[str, Any], str, dict[str, str]]:
-        validated_state = validate_state(state)
-        try:
-            built = build_questions(questions)
-        except ValidationError as exc:
-            raise error(
-                "invalid_input",
-                "Question fields do not match the TypeSafe question schema.",
-                next_steps=["Check criteria keys and value types for each question."],
-            ) from exc
-        request_model = (model or self.model).strip() or self.model
-        # Budget the JSON with placeholders; image bytes have their own limits.
-        validate_request(validated_state, questions, request_model)
-        if not images:
-            if any(spec.get("type") == "box" for spec in questions.values()):
-                raise error("invalid_input", "Box questions need at least one image.",
-                            next_steps=["Pass images and reference them in state."])
-            return validated_state, built, request_model, {}
-        require_image_model(request_model)
-        loaded = load_images(images, image_roots())
-        state_with_images = substitute_images(validated_state, loaded)
-        return state_with_images, built, request_model, {IMAGES_HEADER: "true"}
+    def _prepare(self, **kwargs: Any):
+        kwargs["model"] = kwargs.get("model") or self.model
+        return prepare_request(**kwargs)
 
     def system_one(
         self, *, state: Any, questions: dict[str, Any], model: str | None = None,
         images: dict[str, str] | None = None,
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
     ) -> dict[str, Any]:
-        validated_state, built, request_model, headers = self._prepare(
+        validated_state, built, request_model, options = self._prepare(
             state=state, questions=questions, model=model, images=images,
+            assets=assets, allow_images=allow_images, long_context=long_context,
         )
         try:
             with self._open_sdk() as client:
@@ -264,7 +246,7 @@ class JevClient:
                     state=validated_state,
                     questions=built,
                     model=request_model,
-                    **({"extra_headers": headers} if headers else {}),
+                    **options,
                 )
         except Exception as exc:  # noqa: BLE001 — map SDK failures to structured errors
             raise _sdk_error(exc) from exc
@@ -273,9 +255,13 @@ class JevClient:
     async def asystem_one(
         self, *, state: Any, questions: dict[str, Any], model: str | None = None,
         images: dict[str, str] | None = None,
+        assets: dict[str, Any] | None = None,
+        allow_images: bool = False,
+        long_context: bool = False,
     ) -> dict[str, Any]:
-        validated_state, built, request_model, headers = self._prepare(
+        validated_state, built, request_model, options = self._prepare(
             state=state, questions=questions, model=model, images=images,
+            assets=assets, allow_images=allow_images, long_context=long_context,
         )
         from typesafe_sdk import AsyncTypeSafeClient
 
@@ -288,7 +274,7 @@ class JevClient:
             with anyio.fail_after(self.timeout_seconds):
                 response = await sdk.system_one(
                     state=validated_state, questions=built, model=request_model,
-                    **({"extra_headers": headers} if headers else {}),
+                    **options,
                 )
             return normalize_response(response, questions=questions)
         except TimeoutError as exc:
@@ -314,3 +300,55 @@ def _sdk_error(exc: Exception) -> JevMcpError:
         "typesafe_error", "TypeSafe System One request failed.", retryable=retryable,
         next_steps=["Retry if transient; otherwise verify credentials and provider connectivity."],
     )
+
+def prepare_request(
+    *,
+    state: Any,
+    questions: dict[str, Any],
+    model: str | None = None,
+    images: dict[str, str] | None = None,
+    assets: dict[str, Any] | None = None,
+    allow_images: bool = False,
+    long_context: bool = False,
+) -> tuple[Any, dict[str, Any], str, dict[str, Any]]:
+    validated_state = validate_state(state)
+    if not isinstance(questions, dict) or not questions:
+        raise error("invalid_input", "questions must be a non-empty object.")
+    if type(allow_images) is not bool or type(long_context) is not bool:
+        raise error("invalid_input", "Feature opt-ins must be booleans.")
+    request_model = (model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    validate_request(validated_state, questions, request_model, long_context=long_context)
+    if images is not None and assets is not None:
+        raise error("invalid_input", "Pass assets or the legacy images map, not both.")
+    sources = assets if assets is not None else images
+    has_box = any(isinstance(spec, dict) and spec.get("type") == "box"
+                  for spec in questions.values())
+    if has_box and not sources:
+        raise error("invalid_input", "Box questions need at least one image.")
+    if sources is not None:
+        require_image_model(request_model, box=has_box)
+    if (sources or has_box) and not allow_images:
+        raise error("images_disabled", "Images and Box require allow_images=true.")
+    options: dict[str, Any] = {}
+    headers = {}
+    if allow_images:
+        headers[IMAGES_HEADER] = "true"
+    if long_context:
+        headers[LONG_CONTEXT_HEADER] = "true"
+    if headers:
+        options["extra_headers"] = headers
+    loaded = load_images(sources, image_roots()) if sources is not None else {}
+    content, sdk_assets = substitute_images(
+        {"state": validated_state, "questions": questions}, loaded)
+    validated_state, raw_built = content["state"], content["questions"]
+    if sdk_assets:
+        options["assets"] = sdk_assets
+    try:
+        built = build_questions(raw_built)
+    except ValidationError as exc:
+        raise error(
+            "invalid_input",
+            "Question fields do not match the TypeSafe question schema.",
+            next_steps=["Check criteria keys and value types for each question."],
+        ) from exc
+    return validated_state, built, request_model, options

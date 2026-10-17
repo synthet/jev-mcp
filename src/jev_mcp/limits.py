@@ -6,11 +6,13 @@ from typing import Any
 from .errors import error
 
 MAX_REQUEST_BYTES = 1_000_000
+MAX_LONG_REQUEST_BYTES = 4_000_000
 MAX_QUESTIONS = 128
 MAX_RESPONSE_BYTES = 512_000
 
 
-def validate_request(state: Any, questions: dict[str, Any], model: str) -> None:
+def validate_request(state: Any, questions: dict[str, Any], model: str,
+                     *, long_context: bool = False) -> None:
     if len(questions) > MAX_QUESTIONS:
         raise error("request_too_large", f"Use at most {MAX_QUESTIONS} questions per call.")
     size = 0
@@ -19,8 +21,10 @@ def validate_request(state: Any, questions: dict[str, Any], model: str) -> None:
         encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False)
         for chunk in encoder.iterencode({"state": state, "questions": questions, "model": model}):
             size += len(chunk.encode("utf-8"))
-            if size > MAX_REQUEST_BYTES:
-                raise error("request_too_large", "Request exceeds the 1,000,000-byte budget.",
+            if size > (MAX_LONG_REQUEST_BYTES if long_context else MAX_REQUEST_BYTES):
+                raise error("request_too_large", "Request exceeds the local text byte budget.",
                             next_steps=["Shorten state or split questions into separate requests."])
     except (TypeError, ValueError, RecursionError) as exc:
-        raise error("invalid_input", "State and questions must contain finite JSON values.") from exc
+        raise error(
+            "invalid_input", "State and questions must contain finite JSON values."
+        ) from exc

@@ -12,8 +12,13 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("mcp", help="Run the stdio MCP server")
     doctor = commands.add_parser("doctor", help="Check local readiness without calling TypeSafe")
     doctor.add_argument("--json", action="store_true", help="Print structured diagnostics")
-    doctor.add_argument("--live", action="store_true", help="Also make one paid diagnostic API call")
+    doctor.add_argument("--live", action="store_true", help="Make one live diagnostic API call")
+    from .vision.cli import configure, execute
+    configure(commands)
     args = parser.parse_args(argv)
+
+    if args.command == "vision":
+        return execute(args)
 
     if args.command == "doctor":
         import json

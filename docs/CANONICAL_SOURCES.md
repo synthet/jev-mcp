@@ -16,10 +16,12 @@ question.
 
 | Contract / convention | Source of truth (fill in) |
 |-----------------------|---------------------------|
-| Public MCP tool names | [`../src/jev_mcp/mcp_server.py`](../src/jev_mcp/mcp_server.py) (`jev_choice`, `jev_score`, `jev_noul`, `jev_system_one`) |
-| Env keys (`JEV_TOKEN`, `TYPESAFE_API_KEY`, `JEV_MODEL`, `JEV_TIMEOUT_SECONDS`) | [`../env.example`](../env.example), [`../src/jev_mcp/client.py`](../src/jev_mcp/client.py) |
-| Default Jev model pin | `JEV_MODEL` / `jev-1.13.0` in [`../src/jev_mcp/client.py`](../src/jev_mcp/client.py) |
-| Public API shape | TypeSafe System One (`Choice` / `Score` / `Noul`) via `typesafe-sdk` |
+| Public MCP tool names | [`../src/jev_mcp/mcp_server.py`](../src/jev_mcp/mcp_server.py) (`jev_choice`, `jev_score`, `jev_noul`, `jev_system_one`, `jev_box`) |
+| Env keys (`JEV_TOKEN`, `TYPESAFE_API_KEY`, `JEV_MODEL`, `JEV_TIMEOUT_SECONDS`, `JEV_IMAGE_ROOTS`) | [`../env.example`](../env.example), [`../src/jev_mcp/client.py`](../src/jev_mcp/client.py) |
+| Default Jev model pin | `JEV_MODEL` / `jev-1.14.0` in [`../src/jev_mcp/client.py`](../src/jev_mcp/client.py) |
+| Public API shape | TypeSafe System One (`Choice` / `Score` / `Noul` / `Box`) via `typesafe-sdk` |
+| Public tool parameters and budgets | [API reference](api.md), [image assets](images.md) |
+| Frozen manifests and evaluation | [Evaluation workflow](evaluation.md), `src/jev_mcp/vision/` |
 | Data model / schema | Normalized answer envelopes in [`../src/jev_mcp/normalize.py`](../src/jev_mcp/normalize.py) |
 | Config keys | [`../env.example`](../env.example) |
 | Status / state enums | Error codes in [`../src/jev_mcp/errors.py`](../src/jev_mcp/errors.py) |

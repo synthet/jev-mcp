@@ -35,7 +35,7 @@ class FakeSdk:
     ) -> Any:
         self.last_call = {"state": state, "questions": questions, "model": model, **kwargs}
         return SimpleNamespace(
-            model=model or "jev-1.13.0",
+            model=model or "jev-1.14.0",
             usage=SimpleNamespace(input_tokens=10, output_tokens=2),
             choices={
                 qid: SimpleNamespace(
@@ -115,7 +115,7 @@ async def test_jev_choice_returns_normalized_envelope():
         assert payload["ok"] is True
         assert payload["result"]["answers"]["answer"]["type"] == "choice"
         assert payload["result"]["answers"]["answer"]["choice"] == "billing"
-        assert payload["result"]["model"] == "jev-1.13.0"
+        assert payload["result"]["model"] == "jev-1.14.0"
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,19 @@ okf_version: 0.1
 
 ## Hard rules
 
+Image export is opt-in per request (`allow_images=true`). Local files additionally require
+resolved roots in `JEV_IMAGE_ROOTS`; symlink/junction escapes, malformed images and excessive
+request expansion are rejected before SDK calls. Base64 assets do not grant filesystem access.
+Only image bytes enter SDK assets; paths and evaluator-only annotations are excluded.
+Bounded multipart/response transport and existing cancellation/cleanup remain in effect.
+
+The evaluation runner defaults to offline validation. Paid runs require explicit live/export
+flags, a sample limit, a pinned model and recorded prices. Logs contain typed answers and
+fingerprints; failures exclude raw exception text. Keep the manifest and output directories
+protected: sample IDs, typed answers and evaluator annotations can themselves be sensitive.
+Semantic leakage inside user-supplied free text and concurrent filesystem changes are outside
+the static annotation-key check. Filesystem roots should be controlled by the operator.
+
 - Validate every external input against a schema; reject malformed payloads (fail-closed).
 - Write/side-effecting operations require explicit confirmation and an allowlist.
 - No raw shell / arbitrary-code tools without an approval policy.

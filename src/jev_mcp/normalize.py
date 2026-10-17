@@ -123,6 +123,26 @@ def _number(value: Any, low: float, high: float) -> bool:
     return (type(value) in (int, float) and math.isfinite(value) and low <= value <= high)
 
 
+def validate_judgment(result: dict, questions: dict) -> dict:
+    """Validate recorded normalized answers before allowing a successful resume."""
+    from pydantic import TypeAdapter, ValidationError
+
+    from .models import Judgment
+
+    try:
+        clean = TypeAdapter(Judgment).validate_python(result)
+        if set(clean["answers"]) != set(questions):
+            raise error("invalid_response", "Recorded answers do not match the request.")
+        for qid, spec in questions.items():
+            _validate_answer(clean["answers"][qid], spec)
+        usage = clean["usage"]
+        if usage and any(type(v) is not int or v < 0 for v in usage.values()):
+            raise error("invalid_response", "Recorded usage must be nonnegative integers.")
+        return clean
+    except (ValidationError, KeyError, TypeError) as exc:
+        raise error("invalid_response", "Recorded judgment is malformed.") from exc
+
+
 def _validate_answer(answer: dict[str, Any], question: dict[str, Any]) -> None:
     invalid = error("invalid_response", "Provider answer is inconsistent with the question.")
     if answer["type"] != question["type"]:
@@ -134,7 +154,7 @@ def _validate_answer(answer: dict[str, Any], question: dict[str, Any]) -> None:
     if answer["type"] == "box":
         box = answer["box"]
         if (not all(_number(v, 0, 1) for v in box.values())
-                or box["top"] > box["bottom"] or box["left"] > box["right"]
+                or box["top"] >= box["bottom"] or box["left"] >= box["right"]
                 or (answer["confidence"] is not None and not _number(answer["confidence"], 0, 1))):
             raise invalid
         return

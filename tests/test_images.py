@@ -27,8 +27,12 @@ def png(width: int, height: int) -> bytes:
 
 
 def jpeg(width: int, height: int) -> bytes:
-    sof = b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, height, width, 1) + b"\x01\x11\x00"
-    return b"\xff\xd8" + b"\xff\xe0" + struct.pack(">H", 4) + b"\x00\x00" + sof + b"\xff\xd9"
+    from io import BytesIO
+
+    from PIL import Image
+    stream = BytesIO()
+    Image.new("RGB", (width, height), "blue").save(stream, "JPEG")
+    return stream.getvalue()
 
 
 @pytest.fixture
@@ -67,9 +71,10 @@ def test_placeholders_must_match_aliases_exactly(root: Path):
         substitute_images({"x": "{{image:b}}"}, loaded)  # unknown alias
     with pytest.raises(JevMcpError):
         substitute_images({"x": "no images here"}, loaded)  # unused alias
-    state = substitute_images({"x": "{{image:a}}", "note": "see {{image:a}}"}, loaded)
+    state, assets = substitute_images({"x": "{{image:a}}", "note": "see {{image:a}}"}, loaded)
     assert state["x"].__class__.__name__ == "Image"
-    assert state["note"] == "see {{image:a}}"  # only whole values are substituted
+    assert "{{image:a}}" not in state["note"]
+    assert str(list(assets.values())[0]) in state["note"]
 
 
 class FakeImageSdk:
@@ -116,6 +121,7 @@ async def test_image_request_sends_assets_header_and_normalizes_box(root: Path, 
                 "bird": {"type": "box", "instructions": "the bird in `a`"},
             },
             "model": "jev-1.14.0",
+            "allow_images": True,
         })
     payload = _payload(raw)
     assert payload["ok"] is True, payload
@@ -131,10 +137,11 @@ async def test_image_request_sends_assets_header_and_normalizes_box(root: Path, 
 @pytest.mark.asyncio
 async def test_image_request_requires_a_pinned_image_model(root: Path, monkeypatch):
     monkeypatch.setenv("JEV_IMAGE_ROOTS", str(root))
-    client = JevClient(api_key="test-key", model="jev-1.13.0", async_sdk_factory=FakeImageSdk)
+    client = JevClient(api_key="test-key", model="jev-1.12.0", async_sdk_factory=FakeImageSdk)
     async with Client(create_server(client=client)) as mcp_client:
         raw = await mcp_client.call_tool("jev_noul", {
             "state": {"a": "{{image:a}}"}, "images": {"a": str(root / "a.png")},
+            "allow_images": True,
             "instructions": "Is a bird visible in `a`?",
         })
     payload = _payload(raw)
@@ -148,6 +155,7 @@ async def test_box_without_images_is_rejected(monkeypatch):
     async with Client(create_server(client=client)) as mcp_client:
         raw = await mcp_client.call_tool("jev_system_one", {
             "state": "text only",
+            "allow_images": True,
             "questions": {"bird": {"type": "box", "instructions": "the bird"}},
         })
     assert _payload(raw)["error"]["code"] == "invalid_input"

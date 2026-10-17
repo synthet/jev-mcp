@@ -11,3 +11,6 @@ Format: `- YYYY-MM-DD: <verb> — <details and paths>` (verbs: `created`, `updat
 ## 2026-06
 
 - 2026-06-16: created — initial framework docs (README, INDEX, CANONICAL_SOURCES, OKF_ADOPTION, WIKI_SCHEMA, ai-workflow, security, project).
+## 2026-10
+
+- 2026-10-16: created — API contracts and offline vision evaluation foundation (`api.md`, `evaluation.md`, `examples/vision/`); updated image inputs and canonical model migration.
