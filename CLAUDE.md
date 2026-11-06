@@ -30,18 +30,29 @@ Full contract: [`docs/project/00-backlog-workflow.md`](docs/project/00-backlog-w
 
 ## Architecture
 
-<!-- Describe the system: major modules/components, data flow, runtime/environment. Keep a table. -->
-
 | Module / component | Role |
 |--------------------|------|
-| … | … |
+| `src/jev_mcp/mcp_server.py` | MCP stdio server; registers `jev_*` tools |
+| `src/jev_mcp/client.py` | TypeSafe SDK calls + normalized envelopes |
+| `src/jev_mcp/normalize.py` | Stable JSON shapes for agents |
+| `src/jev_mcp/doctor.py` | Local readiness (credentials, handshake) |
+| `scripts/run_jev_mcp.py` | Launcher referenced from MCP configs |
+| `scripts/install_jev_mcp_workstation.py` | User-level MCP + portable `jev-mcp` skill across Cursor, Claude, Codex, Gemini, Antigravity |
 
 ## Key Files
 
-<!-- path — purpose -->
-- `…` — …
+- [`AGENTS.md`](AGENTS.md) — MCP keys, workstation installer, tool inventory
+- [`.mcp.json`](.mcp.json) — Claude Code project MCP (`jev-rw-systemone`)
+- [`.cursor/mcp.example.json`](.cursor/mcp.example.json) — Cursor template (copy → `.cursor/mcp.json`)
+- [`.claude/skills/jev-mcp/SKILL.md`](.claude/skills/jev-mcp/SKILL.md) — **canonical** skill for System One decision calls
+- [`env.example`](env.example) — `JEV_TOKEN` / `JEV_MODEL` contract
 
-## Commands
+## Agent hosts (this checkout)
+
+After `python scripts/install_jev_mcp_workstation.py`, every listed client shares server key
+**`jev-rw-systemone`** and can use skill **`jev-mcp`** for Choice / Score / Noul / Box judgments. Run
+`jev-mcp doctor` before debugging MCP connection issues.
+
 
 ```bash
 pip install -e ".[dev]"
@@ -85,3 +96,5 @@ Start with [`docs/CANONICAL_SOURCES.md`](docs/CANONICAL_SOURCES.md) (authority m
 - [`docs/ai-workflow/README.md`](docs/ai-workflow/README.md) — agent asset map + SDLC loop
 - [`.agent/SAFETY.md`](.agent/SAFETY.md) — safety & hygiene rules
 - [`.agent/AGENT_INFRA_INVENTORY.md`](.agent/AGENT_INFRA_INVENTORY.md) — full agent-infra inventory
+
+@AGENTS.md

@@ -22,5 +22,8 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Secrets scan
+        run: python scripts/ci/check_secrets.py
+
       - name: Test
         run: python -m pytest

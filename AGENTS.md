@@ -34,7 +34,33 @@ jev-mcp mcp               # stdio MCP server (requires JEV_TOKEN)
 - **Secrets via env only**, never CLI args. Reload the MCP client after changing keys.
 - User-level `~/.cursor/mcp.json` holds cross-repo tools; project keys live in this repo.
 
-### Optional: fff file-search MCP
+### Workstation bootstrap (`jev-rw-systemone` + `jev-mcp` skill)
+
+One command wires the **same** stdio server and copies the **`jev-mcp`** decision skill to active
+projects and user-level Codex/Gemini skill dirs:
+
+```bash
+python scripts/install_jev_mcp_workstation.py   # requires uv; optional JEV_MCP_ROOT
+jev-mcp doctor                                  # credential + MCP handshake (no live API spend)
+```
+
+| Client | Config updated by installer |
+|--------|-----------------------------|
+| **Cursor** | `~/.cursor/mcp.json` + this repo's `.cursor/mcp.json` |
+| **Claude Code** | `~/.claude.json` + project [`.mcp.json`](.mcp.json) |
+| **Claude Desktop** | `%APPDATA%\Claude\claude_desktop_config.json` |
+| **Codex** | `~/.codex/config.toml` (`[mcp_servers.jev-rw-systemone]`) + `~/.codex/skills/jev-mcp/` |
+| **Gemini CLI** | `~/.gemini/settings.json` + `~/.gemini/skills/jev-mcp/` |
+| **Antigravity** | `~/.gemini/antigravity/mcp_config.json` and `~/.gemini/config/mcp_config.json` |
+
+Reload MCP in each IDE/CLI after install. Secrets stay in checkout `.env` via `JEV_ENV_FILE`; the
+installer never writes tokens into JSON/TOML.
+
+**Decision-making:** agents should load the **`jev-mcp`** skill (canonical:
+[`.claude/skills/jev-mcp/SKILL.md`](.claude/skills/jev-mcp/SKILL.md); mirrored under `.cursor/` and
+`.agents/` after sync) whenever routing, reranking, evidence checks, or yes/no gates need typed
+System One judgments instead of invented probabilities.
+
 
 [fff](https://github.com/dmtrKovalenko/fff) provides fast indexed repo search via MCP (`ffgrep`, `fffind`, `fff-multi-grep`). **Opt-in** — clones work without it.
 
@@ -118,6 +144,8 @@ that was not obvious from the error message. Keep entries short: date, symptom, 
 | Date | Symptom | Root cause | Fix / guard |
 |------|---------|------------|-------------|
 | _(none yet)_ | | | |
+| 2026-09-22 | Missing credentials bypassed structured MCP errors; checkout `.env` was missed by CLI/direct stdio | Client construction preceded the error wrapper; package ancestry resolved to `src` | Construct inside wrapper; resolve checkout root; regression tests for all four tools and both entrypoints |
+| 2026-09-22 | Reinstall could invalidate Codex config with duplicate server tables | Text replacement recognized only bare TOML table names | Handle quoted/whitespace headers and parse/compare the complete result before writing |
 | 2026-10-16 | Workflow skills failed frontmatter validation with 186 findings | Command-derived wrappers omitted six metadata fields and retained command-relative/example links | Restore canonical command metadata, rebase real links, render hypothetical targets literally; validate before mirroring |
 
 ## AI workspace assets
@@ -137,3 +165,25 @@ that was not obvious from the error message. Keep entries short: date, symptom, 
 | Project memory | `.agent-memory/` |
 | Workflow playbooks | `.agent/workflows/*.md` |
 | Workflow index | `docs/ai-workflow/README.md` |
+
+<!-- BEGIN FRAMEWORK SETUP -->
+
+## Shared agent setup
+
+Project-specific instructions in this file and nested instruction files govern this workspace.
+Reusable skills are authored in `.claude/skills/`; other harness trees are generated.
+Run installed helpers relative to their skill directory; run project checks from this workspace.
+Preserve user edits, credentials, model settings, permissions and unrelated configuration.
+- Build: `uv sync`
+- Test: `uv run pytest`
+- Lint: `uv run ruff check .`
+
+Installed library: 42 applicable skills. Synchronize explicitly; startup hooks never install updates.
+<!-- END FRAMEWORK SETUP -->
+
+<!-- FRAMEWORK RULE REFERENCES -->
+Read the always-on project rules before working:
+- `.claude/rules/karpathy-coding.md`
+- `.claude/rules/safety-and-secrets.md`
+- `.claude/rules/sdlc-core.md`
+<!-- END FRAMEWORK RULE REFERENCES -->

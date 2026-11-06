@@ -44,9 +44,21 @@ and install the portable `jev-mcp` skill into active sibling projects:
 python scripts/install_jev_mcp_workstation.py
 ```
 
-Requires `uv` on PATH. The installer points `JEV_ENV_FILE` at a local `.env` when found
-(project `.env` or `D:\Projects\synthet-llm-wiki\.env`) and never writes the API key into config
-files. Reload MCP in each client after running. Canonical skill: `.claude/skills/jev-mcp/`.
+Requires `uv` on PATH. The installer points `JEV_ENV_FILE` at this checkout's `.env`
+and never writes the API key into config files. Existing process variables take precedence,
+followed by the checkout's `.env`, then optional `JEV_ENV_FILE` / `DOTENV_PATH` files.
+Reload MCP in each client after running. Canonical skill: `.claude/skills/jev-mcp/` (mirrored to
+`.cursor/` and `.agents/` via `python scripts/sync_assistant_trees.py`).
+
+Verify install without spending API quota:
+
+```bash
+jev-mcp doctor
+python -m pytest tests/test_workstation_installer.py tests/test_mcp_tools.py -q
+```
+
+Hosts wired: **Cursor**, **Claude Code**, **Claude Desktop**, **Codex**, **Gemini CLI**, **Antigravity**
+(see [`AGENTS.md`](AGENTS.md) for exact config paths).
 
 Agent scaffolding lives in `.claude/`, `.cursor/`, `.agents/`, `.codex/`, `.agent/`, and
 `.agent-memory/`. Start with [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).
