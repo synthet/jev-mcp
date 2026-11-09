@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Removed
+
+- `engineering/`: the jev-engineering decision layer and permission gate now live in their own
+  private repository. This copy was a stale snapshot and was never released.
+
 ## [0.3.0] — 2026-10-16
 
 ### Added
