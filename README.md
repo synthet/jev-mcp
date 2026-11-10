@@ -45,7 +45,7 @@ python scripts/install_jev_mcp_workstation.py
 ```
 
 Requires `uv` on PATH. The installer points `JEV_ENV_FILE` at a local `.env` when found
-(project `.env` or `D:\Projects\synthet-llm-wiki\.env`) and never writes the API key into config
+(project `.env` or the sibling `synthet-llm-wiki/.env`) and never writes the API key into config
 files. Reload MCP in each client after running. Canonical skill: `.claude/skills/jev-mcp/`.
 
 Agent scaffolding lives in `.claude/`, `.cursor/`, `.agents/`, `.codex/`, `.agent/`, and
