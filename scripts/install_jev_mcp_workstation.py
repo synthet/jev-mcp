@@ -15,7 +15,11 @@ import shutil
 import sys
 import tomllib
 
-ROOT = pathlib.Path(os.environ.get("JEV_MCP_ROOT", r"D:\Projects\jev-mcp")).resolve()
+ROOT = pathlib.Path(
+    os.environ.get("JEV_MCP_ROOT") or pathlib.Path(__file__).resolve().parents[1]
+).resolve()
+# Sibling checkouts live next to this repo unless JEV_PROJECTS_ROOT says otherwise.
+PROJECTS_ROOT = pathlib.Path(os.environ.get("JEV_PROJECTS_ROOT") or ROOT.parent).resolve()
 SERVER_KEY = "jev-rw-systemone"
 SCRIPT = ROOT / "scripts" / "run_jev_mcp.py"
 SKILL_NAME = "jev-mcp"
@@ -159,7 +163,7 @@ def write_skill(dest_dir: pathlib.Path) -> None:
 
 
 def install_project_skills(project: str) -> None:
-    root = pathlib.Path(r"D:\Projects") / project
+    root = PROJECTS_ROOT / project
     if not root.is_dir():
         print(f"SKIP missing project {root}")
         return
