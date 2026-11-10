@@ -18,7 +18,7 @@
   ],
   "dodTimeoutMs": 600000,
   "autoExport": true,
-  "defaultBranch": "main",
+  "defaultBranch": "master",
   "branchPattern": "af/{id}-{slug}",
   "worktreeDir": "../{repo}.worktrees",
   "loop": {
