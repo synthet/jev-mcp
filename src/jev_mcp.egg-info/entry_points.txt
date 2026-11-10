@@ -1,2 +1,0 @@
-[console_scripts]
-jev-mcp = jev_mcp.cli:main
